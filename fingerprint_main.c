@@ -137,6 +137,8 @@ static void __exit module_fingerprint_exit(void){
 	usb_deregister(&fingerprint_usb_driver);
 }
 
+module_usb_driver(fingerprint_usb_driver);
+
 module_init(module_fingerprint_init);
 module_exit(module_fingerprint_exit);
 
