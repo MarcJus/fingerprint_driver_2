@@ -16,6 +16,8 @@ struct fingerprint_skel {
 	struct usb_device 		*udev;
 	struct usb_interface 	*interface;
 	struct urb				*bulk_urb;
+	struct semaphore		limit_sem;
+	struct usb_anchor		submitted;
 	__u8					*bulk_buffer;
 	size_t					bulk_size;
 	size_t					bulk_filled;
@@ -43,7 +45,8 @@ struct file_operations fops = {
 	.owner = THIS_MODULE,
 	.open = fingerprint_open,
 	.release = fingerprint_release,
-	.read = fingerprint_read
+	.read = fingerprint_read,
+	.flush = fingerprint_flush
 };
 
 static struct usb_class_driver fingerprint_class_driver = {
@@ -54,25 +57,31 @@ static struct usb_class_driver fingerprint_class_driver = {
 
 static int fingerprint_usb_probe(struct usb_interface *interface, const struct usb_device_id *id){
 	int ret;
-	// struct fingerprint_skel *dev;
+	struct fingerprint_skel *dev;
 	
-	// dev = kzalloc(sizeof(*dev), GFP_KERNEL);
-	// if(!dev)
-	// 	return -ENOMEM;
+	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
+	if(!dev)
+		return -ENOMEM;
 
-	// mutex_init(&dev->io_mutex);
-	// init_waitqueue_head(&dev->bulk_wait);
+	mutex_init(&dev->io_mutex);
+	init_waitqueue_head(&dev->bulk_wait);
+	sema_init(&dev->limit_sem, 1);
+	init_usb_anchor(&dev->submitted);
 
-	// dev->udev = usb_get_dev(interface_to_usbdev(interface));
-	// dev->interface = usb_get_intf(interface);
+	dev->udev = usb_get_dev(interface_to_usbdev(interface));
+	dev->interface = usb_get_intf(interface);
+
+	usb_set_intfdata(interface, dev);
 
 	if((ret = usb_register_dev(interface, &fingerprint_class_driver)) < 0){
 		printk(KERN_ERR MODULE_NAME "Cannot get a minor for this device : %d", ret);
-		return ret;
+		usb_set_intfdata(interface, NULL);
+		goto error;
 	} else {
-		printk(MODULE_NAME " - Minor : %d", ret);
+		printk(KERN_DEBUG MODULE_NAME " - Minor : %d", ret);
 	}
-	return 0;
+	error:
+		return ret;
 }
 
 static void fingerprint_usb_disconnect(struct usb_interface *interface){
@@ -88,18 +97,18 @@ static struct usb_driver fingerprint_usb_driver = {
 
 static int __init module_fingerprint_init(void){
 	int ret = 0;
-	printk(MODULE_NAME " - initiating");
+	printk(KERN_INFO MODULE_NAME " - initiating");
 	ret = usb_register(&fingerprint_usb_driver);
 	if(ret){
-		printk(MODULE_NAME " - Error registering usb driver");
+		printk(KERN_INFO MODULE_NAME " - Error registering usb driver");
 		return -ret;
 	}
-	printk(MODULE_NAME " - Usb driver registered successfully");
+	printk(KERN_INFO MODULE_NAME " - Usb driver registered successfully");
 	return 0;
 }
 
 static void __exit module_fingerprint_exit(void){
-	printk(MODULE_NAME " - exit");
+	printk(KERN_INFO MODULE_NAME " - exit");
 	usb_deregister(&fingerprint_usb_driver);
 }
 
