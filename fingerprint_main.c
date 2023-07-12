@@ -26,6 +26,7 @@ struct fingerprint_skel {
 	bool					open;
 	struct mutex			io_mutex;
 	wait_queue_head_t		bulk_wait;
+	int 					disconnected:1;
 };
 
 static struct usb_device_id fingerprint_usb_table[] = {
@@ -80,12 +81,36 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 	} else {
 		printk(KERN_DEBUG MODULE_NAME " - Minor : %d", ret);
 	}
+
+	mutex_lock(&dev->io_mutex);
+	dev->disconnected = 0;
+	mutex_unlock(&dev->io_mutex);
+
 	error:
 		return ret;
 }
 
 static void fingerprint_usb_disconnect(struct usb_interface *interface){
+	struct fingerprint_skel *dev;
+
+	dev = usb_get_intfdata(interface);
+
 	usb_deregister_dev(interface, &fingerprint_class_driver);
+
+	mutex_lock(&dev->io_mutex);
+	dev->disconnected = 1;
+	mutex_unlock(&dev->io_mutex);
+
+	usb_kill_urb(dev->bulk_urb);
+	usb_kill_anchored_urbs(&dev->submitted);
+
+	usb_free_urb(dev->bulk_urb);
+	usb_put_intf(dev->interface);
+	usb_put_dev(dev->udev);
+	kfree(dev->bulk_buffer);
+	kfree(dev);
+
+	pr_info(MODULE_NAME " - device disconnected");
 }
 
 static struct usb_driver fingerprint_usb_driver = {
