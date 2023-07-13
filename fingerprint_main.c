@@ -34,14 +34,6 @@ static struct usb_device_id fingerprint_usb_table[] = {
 	{}
 };
 
-
-
-static char *fingerprint_devnode(struct device *dev, umode_t *mode){
-	if(mode)
-		*mode = 0644;
-	return NULL;
-}
-
 struct file_operations fops = {
 	.owner = THIS_MODULE,
 	.open = fingerprint_open,

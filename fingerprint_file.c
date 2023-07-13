@@ -16,3 +16,9 @@ ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t cout, lo
 int fingerprint_flush(struct file *file, fl_owner_t id){
 	return 0;
 }
+
+char *fingerprint_devnode(struct device *dev, umode_t *mode){
+	if(mode)
+		*mode = 0644;
+	return NULL;
+}

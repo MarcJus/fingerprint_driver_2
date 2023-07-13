@@ -11,4 +11,6 @@ ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t count, l
 
 int fingerprint_flush(struct file *file, fl_owner_t id);
 
+char *fingerprint_devnode(struct device *dev, umode_t *mode)
+
 #endif //_FINGERPRINT_FILE_
