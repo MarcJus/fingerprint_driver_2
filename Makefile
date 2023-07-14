@@ -1,5 +1,4 @@
 obj-m += fingerprint.o
-fingerprint-objs := fingerprint_main.o fingerprint_file.o
 PWD = $(shell pwd)
 KDIR = /lib/modules/$(shell uname -r)/build
 
@@ -10,3 +9,6 @@ modules:
 
 clean:
 	sudo make -C $(KDIR) M=$(PWD) clean
+
+test: test.c
+	gcc test.c -o test
