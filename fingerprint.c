@@ -14,11 +14,13 @@
 struct fingerprint_skel {
 	struct usb_device 		*udev;
 	struct usb_interface 	*interface;
-	struct urb				*bulk_urb;
+	struct urb				*bulk_in_urb;
+	struct urb				*bulk_out_urb;
 	struct semaphore		limit_sem;
 	struct usb_anchor		submitted;
 	struct kref				refcount;
-	__u8					*bulk_buffer;
+	u8						*bulk_in_buffer;
+	u8						*bulk_out_buffer;
 	size_t					bulk_size;
 	size_t					bulk_filled;
 	size_t					bulk_copied;
@@ -42,10 +44,12 @@ static void fingerprint_delete(struct kref *refcount){
 	printk(MODULE_NAME ": fingerprint_delete\n");
 	struct fingerprint_skel *dev;
 	dev = to_fingerprint_dev(refcount);
-	usb_free_urb(dev->bulk_urb);
+	usb_free_urb(dev->bulk_in_urb);
+	usb_free_urb(dev->bulk_out_urb);
 	usb_put_intf(dev->interface);
 	usb_put_dev(dev->udev);
-	kfree(dev->bulk_buffer);
+	kfree(dev->bulk_in_buffer);
+	kfree(dev->bulk_out_buffer);
 	kfree(dev);
 }
 
@@ -145,6 +149,32 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 	dev->udev = usb_get_dev(interface_to_usbdev(interface));
 	dev->interface = usb_get_intf(interface);
 
+	/*64 = length of fingerprint*/
+	dev->bulk_in_buffer = kmalloc(64, GFP_KERNEL);
+	if(!dev->bulk_in_buffer){
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	/*3 = length of data sent to fingerprint reader*/
+	dev->bulk_out_buffer = kmalloc(3, GFP_KERNEL);
+	if(!dev->bulk_out_buffer){
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	dev->bulk_in_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->bulk_in_urb){
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	dev->bulk_out_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->bulk_out_urb){
+		ret = -ENOMEM;
+		goto error;
+	}
+
 	usb_set_intfdata(interface, dev);
 
 	if((ret = usb_register_dev(interface, &fingerprint_class_driver)) < 0){
@@ -174,7 +204,7 @@ static void fingerprint_usb_disconnect(struct usb_interface *interface){
 	dev->disconnected = 1;
 	mutex_unlock(&dev->io_mutex);
 
-	usb_kill_urb(dev->bulk_urb);
+	usb_kill_urb(dev->bulk_in_urb);
 	usb_kill_anchored_urbs(&dev->submitted);
 
 	kref_put(&dev->refcount, fingerprint_delete);
