@@ -213,7 +213,7 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 		return ret;
 }
 
-static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t cout, loff_t *off){
+static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t count, loff_t *off){
 	return 0;
 }
 
