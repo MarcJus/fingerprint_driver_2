@@ -325,7 +325,8 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 	dev->interface = usb_get_intf(interface);
 
 	/*64 = length of fingerprint*/
-	dev->bulk_in_buffer = kmalloc(64, GFP_KERNEL);
+	dev->bulk_size = 64;
+	dev->bulk_in_buffer = kmalloc(dev->bulk_size, GFP_KERNEL);
 	if(!dev->bulk_in_buffer){
 		ret = -ENOMEM;
 		goto error;
