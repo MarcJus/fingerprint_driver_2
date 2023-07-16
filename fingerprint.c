@@ -213,6 +213,10 @@ exit:
 	return ret;
 }
 
+static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
+
+}
+
 static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t count, loff_t *off){
 
 	struct fingerprint_skel *dev;
