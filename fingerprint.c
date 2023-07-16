@@ -236,7 +236,7 @@ static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
 			usb_rcvbulkpipe(dev->udev, 0x4),
 			dev->bulk_in_buffer,
 			dev->bulk_size,
-			NULL,
+			fingerprint_read_callback,
 			dev);
 
 }
