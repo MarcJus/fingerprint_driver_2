@@ -221,6 +221,8 @@ static void fingerprint_read_callback(struct urb *urb){
 	if(urb->status){
 		dev_err(&dev->interface->dev, "%s - nonzero read bulk status reveived: %d\n",
 			__func__, urb->status);
+	} else {
+		dev->bulk_filled = urb->actual_length;
 	}
 
 	dev->ongoing_read = 0;
