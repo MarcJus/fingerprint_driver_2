@@ -214,7 +214,40 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 }
 
 static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t count, loff_t *off){
-	return 0;
+
+	struct fingerprint_skel *dev;
+	int ret;
+	bool ongoing_io;
+
+	dev = file->private_data;
+
+	if(!count)
+		return 0;
+
+	ret = mutex_lock_interruptible(&dev->io_mutex);
+	if(ret < 0)
+		return ret;
+
+	if(dev->disconnected){
+		ret - ENODEV;
+		goto exit;
+	}
+
+	retry:
+		if(ongoing_io){
+			if(file->f_flags & O_NONBLOCK){
+				ret = -EAGAIN;
+				goto exit;
+			}
+
+			ret = wait_event_interruptible(dev->bulk_wait, (!dev->ongoing_read));
+			if(ret < 0)
+				goto exit;
+		}
+
+	exit:
+		mutex_unlock(&dev->io_mutex);
+		return ret;
 }
 
 static int fingerprint_flush(struct file *file, fl_owner_t id){
