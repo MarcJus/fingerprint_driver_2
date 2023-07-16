@@ -215,6 +215,15 @@ exit:
 
 static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
 
+	int ret;
+
+	usb_fill_bulk_urb(dev->in_urb, dev->udev,
+			usb_rcvbulkpipe(dev->udev, 0x4),
+			dev->bulk_in_buffer,
+			dev->bulk_size,
+			NULL,
+			dev);
+
 }
 
 static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t count, loff_t *off){
