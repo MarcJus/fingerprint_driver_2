@@ -239,6 +239,21 @@ static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
 			fingerprint_read_callback,
 			dev);
 
+	dev->ongoing_read = 1;
+
+	dev->bulk_copied = 0;
+	dev->bulk_filled = 0;
+
+	ret = usb_submit_urb(dev->in_urb, GFP_KERNEL);
+	if(ret < 0){
+		dev_err(&dev->interface->dev, 
+			"%s - failed submitting read urb, error %d\n",
+			__func__, ret);
+		ret = (ret == -ENOMEM) ? ret : -EIO;
+		dev->ongoing_read = 0;
+	}
+
+	return ret;
 }
 
 static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t count, loff_t *off){
