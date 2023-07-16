@@ -313,6 +313,12 @@ retry:
 			ret = chunk;
 
 		dev->bulk_copied += chunk;
+	} else {
+		ret = fingerprint_do_read_usb_request(dev);
+		if(ret < 0)
+			goto exit;
+		else
+			goto retry;
 	}
 
 exit:
