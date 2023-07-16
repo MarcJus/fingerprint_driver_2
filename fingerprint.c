@@ -296,7 +296,13 @@ retry:
 
 		/*no data left to copy*/
 		if(!available){
-			goto exit;
+			ret = fingerprint_do_read_usb_request(dev);
+			if(ret < 0)
+				/*error*/
+				goto exit;
+			else
+				/*success*/ 
+				goto retry;
 		}
 
 		if(copy_to_user(buffer, dev->bulk_in_buffer + dev->bulk_copied, chunk))
