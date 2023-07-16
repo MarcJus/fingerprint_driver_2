@@ -44,7 +44,7 @@ static struct usb_driver fingerprint_usb_driver;
 
 static void fingerprint_delete(struct kref *refcount){
 	struct fingerprint_skel *dev;
-	
+
 	printk(MODULE_NAME ": fingerprint_delete\n");
 	dev = to_fingerprint_dev(refcount);
 	usb_free_urb(dev->in_urb);
@@ -355,3 +355,4 @@ module_exit(module_fingerprint_exit);
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("MarcJus");
 MODULE_DESCRIPTION("Driver for Elan fingerprint product 0c00");
+MODULE_VERSION("0.1.0");
