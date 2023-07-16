@@ -66,6 +66,7 @@ static void fingerprint_write_callback(struct urb *urb){
 		__func__, urb->status);
 	}
 
+	mutex_unlock(&dev->io_mutex);
 	up(&dev->limit_sem);
 }
 
@@ -135,7 +136,6 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 	usb_anchor_urb(dev->out_urb, &dev->submitted);
 
 	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
-	mutex_unlock(&dev->io_mutex);
 	if(ret){
 		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
 			__func__, ret);
