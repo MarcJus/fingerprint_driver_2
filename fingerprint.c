@@ -14,13 +14,15 @@
 struct fingerprint_skel {
 	struct usb_device 		*udev;
 	struct usb_interface 	*interface;
-	struct urb				*bulk_in_urb;
-	struct urb				*bulk_out_urb;
+	struct urb				*in_urb;
+	struct urb				*out_urb;
 	struct semaphore		limit_sem;
 	struct usb_anchor		submitted;
 	struct kref				refcount;
 	u8						*bulk_in_buffer;
 	u8						*bulk_out_buffer;
+	u8						last_bulk_in_endpoint;
+	u8						last_bulk_out_endpoint;
 	size_t					bulk_size;
 	size_t					bulk_filled;
 	size_t					bulk_copied;
@@ -41,16 +43,30 @@ static struct usb_device_id fingerprint_usb_table[] = {
 static struct usb_driver fingerprint_usb_driver;
 
 static void fingerprint_delete(struct kref *refcount){
-	printk(MODULE_NAME ": fingerprint_delete\n");
 	struct fingerprint_skel *dev;
+	
+	printk(MODULE_NAME ": fingerprint_delete\n");
 	dev = to_fingerprint_dev(refcount);
-	usb_free_urb(dev->bulk_in_urb);
-	usb_free_urb(dev->bulk_out_urb);
+	usb_free_urb(dev->in_urb);
+	usb_free_urb(dev->out_urb);
 	usb_put_intf(dev->interface);
 	usb_put_dev(dev->udev);
 	kfree(dev->bulk_in_buffer);
 	kfree(dev->bulk_out_buffer);
 	kfree(dev);
+}
+
+static void fingerprint_write_callback(struct urb *urb){
+	struct fingerprint_skel *dev;
+
+	dev = urb->context;
+
+	if(urb->status){
+		dev_err(&dev->interface->dev, "%s - nonzero write bulk status received: %d\n", 
+		__func__, urb->status);
+	}
+
+	up(&dev->limit_sem);
 }
 
 static int fingerprint_open(struct inode *inode, struct file *file){
@@ -84,7 +100,54 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 	kref_get(&dev->refcount);
 
 	file->private_data = dev;
-	
+
+	/*blocking file*/
+	if(!(file->f_flags & O_NONBLOCK)){
+		if(down_interruptible(&dev->limit_sem)){
+			return -ERESTARTSYS;
+			goto exit;
+		}
+	/*non-blocking file*/
+	} else {
+		/**/
+		if(down_trylock(&dev->limit_sem)){
+			return -EAGAIN;
+			goto exit;
+		}
+	}
+
+	mutex_lock(&dev->io_mutex);
+	if(dev->disconnected){
+		/*device disconnected for unknown reason*/
+		mutex_unlock(&dev->io_mutex);
+		ret = -ENODEV;
+		goto error;
+	}
+
+	dev->last_bulk_out_endpoint = 0x1;
+
+	dev->bulk_out_buffer[0] = 0x40;
+	dev->bulk_out_buffer[1] = 0xff;
+	dev->bulk_out_buffer[2] = 0x03;
+
+	usb_fill_bulk_urb(dev->out_urb, dev->udev, usb_sndbulkpipe(dev->udev, dev->last_bulk_out_endpoint),
+		dev->bulk_out_buffer, 3, fingerprint_write_callback, dev);
+	usb_anchor_urb(dev->out_urb, &dev->submitted);
+
+	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
+	mutex_unlock(&dev->io_mutex);
+	if(ret){
+		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
+			__func__, ret);
+		goto error_unanchor;
+	}
+
+	goto exit;
+
+	error_unanchor:
+		usb_unanchor_urb(dev->out_urb);
+	error:
+		up(&dev->limit_sem);
 	exit:
 		return ret;
 }
@@ -92,15 +155,62 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 static int fingerprint_release(struct inode *inode, struct file *file){
 
 	struct fingerprint_skel *dev;
+	int ret = 0;
 
 	dev = file->private_data;
 	if(!dev){
 		return -ENODEV;
 	}
 
-	kref_put(&dev->refcount, fingerprint_delete);
-	printk(MODULE_NAME ": release (refcount = %d)\n", kref_read(&dev->refcount));
-	return 0;
+	/*blocking file*/
+	if(!(file->f_flags & O_NONBLOCK)){
+		if(down_interruptible(&dev->limit_sem)){
+			return -ERESTARTSYS;
+			goto exit;
+		}
+	/*non-blocking file*/
+	} else {
+		/**/
+		if(down_trylock(&dev->limit_sem)){
+			return -EAGAIN;
+			goto exit;
+		}
+	}
+
+	mutex_lock(&dev->io_mutex);
+	if(dev->disconnected){
+		/*device disconnected for unknown reason*/
+		mutex_unlock(&dev->io_mutex);
+		ret = -ENODEV;
+		goto error;
+	}
+
+	dev->last_bulk_out_endpoint = 0x1;
+	dev->bulk_out_buffer[0] = 0x40;
+	dev->bulk_out_buffer[1] = 0xff;
+	dev->bulk_out_buffer[2] = 0x02;
+
+	usb_fill_bulk_urb(dev->out_urb, dev->udev, usb_sndbulkpipe(dev->udev, dev->last_bulk_out_endpoint),
+		dev->bulk_out_buffer, 3, fingerprint_write_callback, dev);
+
+	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
+	mutex_unlock(&dev->io_mutex);
+	if(ret){
+		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
+			__func__, ret);
+		goto error_unanchor;
+	}
+
+	goto exit;
+
+	error_unanchor:
+		usb_unanchor_urb(dev->out_urb);
+	error:
+		up(&dev->limit_sem);
+	exit:
+		kref_put(&dev->refcount, fingerprint_delete);
+		printk(MODULE_NAME ": release (refcount = %d)\n", kref_read(&dev->refcount));
+		return ret;
 }
 
 static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t cout, loff_t *off){
@@ -163,14 +273,14 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 		goto error;
 	}
 
-	dev->bulk_in_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->bulk_in_urb){
+	dev->in_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->in_urb){
 		ret = -ENOMEM;
 		goto error;
 	}
 
-	dev->bulk_out_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->bulk_out_urb){
+	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->out_urb){
 		ret = -ENOMEM;
 		goto error;
 	}
@@ -204,7 +314,7 @@ static void fingerprint_usb_disconnect(struct usb_interface *interface){
 	dev->disconnected = 1;
 	mutex_unlock(&dev->io_mutex);
 
-	usb_kill_urb(dev->bulk_in_urb);
+	usb_kill_urb(dev->in_urb);
 	usb_kill_anchored_urbs(&dev->submitted);
 
 	kref_put(&dev->refcount, fingerprint_delete);
