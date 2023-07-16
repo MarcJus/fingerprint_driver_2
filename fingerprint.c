@@ -213,6 +213,21 @@ exit:
 	return ret;
 }
 
+static void fingerprint_read_callback(struct urb *urb){
+	struct fingerprint_skel *dev;
+
+	dev = urb->context;
+
+	if(urb->status){
+		dev_err(&dev->interface->dev, "%s - nonzero read bulk status reveived: %d\n",
+			__func__, urb->status);
+	}
+
+	dev->ongoing_read = 0;
+
+	wake_up_interruptible(&dev->bulk_wait);
+}
+
 static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
 
 	int ret;
@@ -221,7 +236,7 @@ static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
 			usb_rcvbulkpipe(dev->udev, 0x4),
 			dev->bulk_in_buffer,
 			dev->bulk_size,
-			NULL,
+			fingerprint_read_callback,
 			dev);
 
 }
