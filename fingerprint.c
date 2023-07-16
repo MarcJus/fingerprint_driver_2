@@ -229,7 +229,7 @@ static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t c
 		return ret;
 
 	if(dev->disconnected){
-		ret - ENODEV;
+		ret = -ENODEV;
 		goto exit;
 	}
 
