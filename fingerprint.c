@@ -245,6 +245,25 @@ retry:
 			goto exit;
 	}
 
+	if(dev->bulk_filled){
+		/*data left to copy*/
+		size_t available = dev->bulk_filled - dev->bulk_copied;
+		/*should not copy more than requested*/
+		size_t chunk = min(available, count);
+
+		/*no data left to copy*/
+		if(!available){
+			goto exit;
+		}
+
+		if(copy_to_user(buffer, dev->bulk_in_buffer + dev->bulk_copied, chunk))
+			ret = -EFAULT;
+		else
+			ret = chunk;
+
+		dev->bulk_copied += chunk;
+	}
+
 exit:
 	mutex_unlock(&dev->io_mutex);
 	return ret;
