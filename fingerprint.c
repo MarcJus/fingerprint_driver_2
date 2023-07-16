@@ -213,6 +213,10 @@ exit:
 	return ret;
 }
 
+static void fingerprint_read_callback(struct urb *urb){
+	
+}
+
 static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
 
 	int ret;
