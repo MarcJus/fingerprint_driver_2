@@ -117,6 +117,12 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 		}
 	}
 
+	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->out_urb){
+		ret = -ENOMEM;
+		goto error;
+	}
+
 	mutex_lock(&dev->io_mutex);
 	if(dev->disconnected){
 		/*device disconnected for unknown reason*/
@@ -141,6 +147,8 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 			__func__, ret);
 		goto error_unanchor;
 	}
+
+	usb_free_urb(dev->out_urb);
 
 	goto exit;
 
@@ -177,6 +185,12 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 		}
 	}
 
+	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->out_urb){
+		ret = -ENOMEM;
+		goto error;
+	}
+
 	mutex_lock(&dev->io_mutex);
 	if(dev->disconnected){
 		/*device disconnected for unknown reason*/
@@ -200,6 +214,8 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 			__func__, ret);
 		goto error_unanchor;
 	}
+
+	usb_free_urb(dev->out_urb);
 
 	goto exit;
 
@@ -385,12 +401,6 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 
 	dev->in_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if(!dev->in_urb){
-		ret = -ENOMEM;
-		goto error;
-	}
-
-	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->out_urb){
 		ret = -ENOMEM;
 		goto error;
 	}
