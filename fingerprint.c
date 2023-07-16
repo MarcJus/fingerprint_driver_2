@@ -144,12 +144,12 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 
 	goto exit;
 
-	error_unanchor:
-		usb_unanchor_urb(dev->out_urb);
-	error:
-		up(&dev->limit_sem);
-	exit:
-		return ret;
+error_unanchor:
+	usb_unanchor_urb(dev->out_urb);
+error:
+	up(&dev->limit_sem);
+exit:
+	return ret;
 }
 
 static int fingerprint_release(struct inode *inode, struct file *file){
@@ -203,14 +203,14 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 
 	goto exit;
 
-	error_unanchor:
-		usb_unanchor_urb(dev->out_urb);
-	error:
-		up(&dev->limit_sem);
-	exit:
-		kref_put(&dev->refcount, fingerprint_delete);
-		printk(MODULE_NAME ": release (refcount = %d)\n", kref_read(&dev->refcount));
-		return ret;
+error_unanchor:
+	usb_unanchor_urb(dev->out_urb);
+error:
+	up(&dev->limit_sem);
+exit:
+	kref_put(&dev->refcount, fingerprint_delete);
+	printk(MODULE_NAME ": release (refcount = %d)\n", kref_read(&dev->refcount));
+	return ret;
 }
 
 static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t count, loff_t *off){
@@ -233,21 +233,21 @@ static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t c
 		goto exit;
 	}
 
-	retry:
-		if(ongoing_io){
-			if(file->f_flags & O_NONBLOCK){
-				ret = -EAGAIN;
-				goto exit;
-			}
-
-			ret = wait_event_interruptible(dev->bulk_wait, (!dev->ongoing_read));
-			if(ret < 0)
-				goto exit;
+retry:
+	if(ongoing_io){
+		if(file->f_flags & O_NONBLOCK){
+			ret = -EAGAIN;
+			goto exit;
 		}
 
-	exit:
-		mutex_unlock(&dev->io_mutex);
-		return ret;
+		ret = wait_event_interruptible(dev->bulk_wait, (!dev->ongoing_read));
+		if(ret < 0)
+			goto exit;
+	}
+
+exit:
+	mutex_unlock(&dev->io_mutex);
+	return ret;
 }
 
 static int fingerprint_flush(struct file *file, fl_owner_t id){
@@ -332,8 +332,8 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 	dev->disconnected = 0;
 	mutex_unlock(&dev->io_mutex);
 
-	error:
-		return ret;
+error:
+	return ret;
 }
 
 static void fingerprint_usb_disconnect(struct usb_interface *interface){
