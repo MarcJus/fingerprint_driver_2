@@ -31,6 +31,7 @@ struct fingerprint_skel {
 	struct mutex			io_mutex;
 	wait_queue_head_t		bulk_wait;
 	int 					disconnected:1;
+	bool					reader_activated;
 };
 
 #define to_fingerprint_dev(d) container_of(d, struct fingerprint_skel, refcount)
@@ -213,6 +214,7 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 
 	usb_fill_bulk_urb(dev->out_urb, dev->udev, usb_sndbulkpipe(dev->udev, dev->last_bulk_out_endpoint),
 		dev->bulk_out_buffer, 3, fingerprint_write_callback, dev);
+	usb_anchor_urb(dev->out_urb, &dev->submitted);
 
 	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
 	mutex_unlock(&dev->io_mutex);
