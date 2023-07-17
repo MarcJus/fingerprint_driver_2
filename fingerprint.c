@@ -70,6 +70,48 @@ static void fingerprint_write_callback(struct urb *urb){
 	up(&dev->limit_sem);
 }
 
+static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool activated){
+	int ret;
+
+	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->out_urb){
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	mutex_lock(&dev->io_mutex);
+	if(dev->disconnected){
+		/*device disconnected for unknown reason*/
+		mutex_unlock(&dev->io_mutex);
+		ret = -ENODEV;
+		goto error;
+	}
+
+	dev->last_bulk_out_endpoint = 0x1;
+	dev->bulk_out_buffer[0] = 0x40;
+	dev->bulk_out_buffer[1] = 0xff;
+	dev->bulk_out_buffer[2] = activated ? 0x3 : 0x2;
+
+	usb_fill_bulk_urb(dev->out_urb, dev->udev, usb_sndbulkpipe(dev->udev, dev->last_bulk_out_endpoint),
+		dev->bulk_out_buffer, 3, fingerprint_write_callback, dev);
+	usb_anchor_urb(dev->out_urb, &dev->submitted);
+
+	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
+	mutex_unlock(&dev->io_mutex);
+	if(ret){
+		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
+			__func__, ret);
+		goto error_unanchor;
+	}
+
+	usb_free_urb(dev->out_urb);
+	
+error_unanchor:
+	usb_unanchor_urb(&dev->submitted);
+error:
+	return ret;
+}
+
 static int fingerprint_open(struct inode *inode, struct file *file){
 
 	struct fingerprint_skel *dev;
@@ -122,43 +164,12 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 		goto error;
 	}
 
-	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->out_urb){
-		ret = -ENOMEM;
+	ret = fingerprint_set_activation_state(dev, true);
+	if(ret)
 		goto error;
-	}
-
-	mutex_lock(&dev->io_mutex);
-	if(dev->disconnected){
-		/*device disconnected for unknown reason*/
-		mutex_unlock(&dev->io_mutex);
-		ret = -ENODEV;
-		goto error;
-	}
-
-	dev->last_bulk_out_endpoint = 0x1;
-
-	dev->bulk_out_buffer[0] = 0x40;
-	dev->bulk_out_buffer[1] = 0xff;
-	dev->bulk_out_buffer[2] = 0x03;
-
-	usb_fill_bulk_urb(dev->out_urb, dev->udev, usb_sndbulkpipe(dev->udev, dev->last_bulk_out_endpoint),
-		dev->bulk_out_buffer, 3, fingerprint_write_callback, dev);
-	usb_anchor_urb(dev->out_urb, &dev->submitted);
-
-	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
-	if(ret){
-		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
-			__func__, ret);
-		goto error_unanchor;
-	}
-
-	usb_free_urb(dev->out_urb);
 
 	goto exit;
 
-error_unanchor:
-	usb_unanchor_urb(dev->out_urb);
 error:
 	up(&dev->limit_sem);
 exit:
@@ -193,43 +204,12 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 		}
 	}
 
-	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->out_urb){
-		ret = -ENOMEM;
+	ret = fingerprint_set_activation_state(dev, false);
+	if(ret)
 		goto error;
-	}
-
-	mutex_lock(&dev->io_mutex);
-	if(dev->disconnected){
-		/*device disconnected for unknown reason*/
-		mutex_unlock(&dev->io_mutex);
-		ret = -ENODEV;
-		goto error;
-	}
-
-	dev->last_bulk_out_endpoint = 0x1;
-	dev->bulk_out_buffer[0] = 0x40;
-	dev->bulk_out_buffer[1] = 0xff;
-	dev->bulk_out_buffer[2] = 0x02;
-
-	usb_fill_bulk_urb(dev->out_urb, dev->udev, usb_sndbulkpipe(dev->udev, dev->last_bulk_out_endpoint),
-		dev->bulk_out_buffer, 3, fingerprint_write_callback, dev);
-	usb_anchor_urb(dev->out_urb, &dev->submitted);
-
-	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
-	mutex_unlock(&dev->io_mutex);
-	if(ret){
-		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
-			__func__, ret);
-		goto error_unanchor;
-	}
-
-	usb_free_urb(dev->out_urb);
 
 	goto exit;
 
-error_unanchor:
-	usb_unanchor_urb(dev->out_urb);
 error:
 	up(&dev->limit_sem);
 exit:
@@ -252,10 +232,6 @@ static void fingerprint_read_callback(struct urb *urb){
 	dev->ongoing_read = 0;
 
 	wake_up_interruptible(&dev->bulk_wait);
-}
-
-static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool activated){
-
 }
 
 static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
