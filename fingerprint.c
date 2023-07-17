@@ -234,7 +234,6 @@ static void fingerprint_read_callback(struct urb *urb){
 
 	dev = urb->context;
 
-	printk(MODULE_NAME ": read_callback");
 	if(urb->status){
 		dev_err(&dev->interface->dev, "%s - nonzero read bulk status reveived: %d\n",
 			__func__, urb->status);
@@ -250,8 +249,6 @@ static void fingerprint_read_callback(struct urb *urb){
 static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
 
 	int ret;
-	printk(MODULE_NAME ": out urb = %p\n", dev->out_urb);
-	printk(MODULE_NAME ": in urb = %p\n", dev->in_urb);
 
 	usb_fill_bulk_urb(dev->in_urb, dev->udev,
 			usb_rcvbulkpipe(dev->udev, 0x4),
@@ -266,7 +263,6 @@ static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
 	dev->bulk_filled = 0;
 
 	ret = usb_submit_urb(dev->in_urb, GFP_KERNEL);
-	printk(MODULE_NAME ": ret = %d\n", ret);
 	if(ret < 0){
 		dev_err(&dev->interface->dev, 
 			"%s - failed submitting read urb, error %d\n",
@@ -305,7 +301,6 @@ retry:
 			ret = -EAGAIN;
 			goto exit;
 		}
-		printk("Wait\n");
 		ret = wait_event_interruptible(dev->bulk_wait, (!dev->ongoing_read));
 		if(ret < 0)
 			goto exit;
@@ -319,7 +314,6 @@ retry:
 
 		/*no data left to copy*/
 		if(!available){
-			printk("!available\n");
 			ret = fingerprint_do_read_usb_request(dev);
 			if(ret < 0)
 				/*error*/
@@ -336,7 +330,6 @@ retry:
 
 		dev->bulk_copied += chunk;
 	} else {
-		printk("Else\n");
 		ret = fingerprint_do_read_usb_request(dev);
 		if(ret < 0)
 			goto exit;
