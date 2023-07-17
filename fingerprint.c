@@ -45,7 +45,6 @@ static struct usb_driver fingerprint_usb_driver;
 static void fingerprint_delete(struct kref *refcount){
 	struct fingerprint_skel *dev;
 
-	printk(MODULE_NAME ": fingerprint_delete\n");
 	dev = to_fingerprint_dev(refcount);
 	usb_free_urb(dev->in_urb);
 	usb_free_urb(dev->out_urb);
@@ -77,7 +76,6 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 	int ret = 0;
 	int subminor;
 	int current_ref;
-	printk(MODULE_NAME ": file open\n");
 
 	subminor = iminor(inode);
 
@@ -225,7 +223,6 @@ error:
 	up(&dev->limit_sem);
 exit:
 	kref_put(&dev->refcount, fingerprint_delete);
-	printk(MODULE_NAME ": release (refcount = %d)\n", kref_read(&dev->refcount));
 	return ret;
 }
 
@@ -343,7 +340,6 @@ exit:
 }
 
 static int fingerprint_flush(struct file *file, fl_owner_t id){
-	printk(MODULE_NAME ": flush");
 	return 0;
 }
 
@@ -438,8 +434,6 @@ static void fingerprint_usb_disconnect(struct usb_interface *interface){
 	usb_kill_anchored_urbs(&dev->submitted);
 
 	kref_put(&dev->refcount, fingerprint_delete);
-
-	pr_info(MODULE_NAME ": device disconnected");
 }
 
 static struct usb_driver fingerprint_usb_driver = {
@@ -458,12 +452,10 @@ static int __init module_fingerprint_init(void){
 		printk(KERN_INFO MODULE_NAME ": Error registering usb driver");
 		return -ret;
 	}
-	printk(KERN_INFO MODULE_NAME ": Usb driver registered successfully");
 	return 0;
 }
 
 static void __exit module_fingerprint_exit(void){
-	printk(KERN_INFO MODULE_NAME ": exit");
 	usb_deregister(&fingerprint_usb_driver);
 }
 
