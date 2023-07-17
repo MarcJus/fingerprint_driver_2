@@ -252,6 +252,10 @@ static void fingerprint_read_callback(struct urb *urb){
 	wake_up_interruptible(&dev->bulk_wait);
 }
 
+static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool activated){
+
+}
+
 static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
 
 	int ret;
