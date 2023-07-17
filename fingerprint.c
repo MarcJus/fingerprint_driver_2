@@ -446,7 +446,6 @@ static struct usb_driver fingerprint_usb_driver = {
 
 static int __init module_fingerprint_init(void){
 	int ret = 0;
-	printk(KERN_INFO MODULE_NAME ": initiating");
 	ret = usb_register(&fingerprint_usb_driver);
 	if(ret){
 		printk(KERN_INFO MODULE_NAME ": Error registering usb driver");
