@@ -115,6 +115,12 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 		}
 	}
 
+	dev->in_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->in_urb){
+		ret = -ENOMEM;
+		goto error;
+	}
+
 	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if(!dev->out_urb){
 		ret = -ENOMEM;
@@ -167,6 +173,9 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 	if(!dev){
 		return -ENODEV;
 	}
+
+	usb_kill_urb(dev->in_urb);
+	usb_free_urb(dev->in_urb);
 
 	/*blocking file*/
 	if(!(file->f_flags & O_NONBLOCK)){
@@ -391,12 +400,6 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 	/*3 = length of data sent to fingerprint reader*/
 	dev->bulk_out_buffer = kmalloc(3, GFP_KERNEL);
 	if(!dev->bulk_out_buffer){
-		ret = -ENOMEM;
-		goto error;
-	}
-
-	dev->in_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->in_urb){
 		ret = -ENOMEM;
 		goto error;
 	}
