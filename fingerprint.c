@@ -66,7 +66,7 @@ static void fingerprint_write_callback(struct urb *urb){
 		__func__, urb->status);
 	}
 
-	mutex_unlock(&dev->io_mutex);
+	wake_up_interruptible(&dev->bulk_wait);
 	up(&dev->limit_sem);
 }
 
@@ -79,10 +79,9 @@ static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool a
 		goto error;
 	}
 
-	mutex_lock(&dev->io_mutex);
+	mutex_lock_interruptible(&dev->io_mutex);
 	if(dev->disconnected){
 		/*device disconnected for unknown reason*/
-		mutex_unlock(&dev->io_mutex);
 		ret = -ENODEV;
 		goto error;
 	}
@@ -105,7 +104,8 @@ static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool a
 	}
 
 	usb_free_urb(dev->out_urb);
-	
+	mutex_unlock(&dev->io_mutex);
+
 error_unanchor:
 	usb_unanchor_urb(&dev->submitted);
 error:
@@ -164,10 +164,6 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 		goto error;
 	}
 
-	ret = fingerprint_set_activation_state(dev, true);
-	if(ret)
-		goto error;
-
 	goto exit;
 
 error:
@@ -203,10 +199,6 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 			goto exit;
 		}
 	}
-
-	ret = fingerprint_set_activation_state(dev, false);
-	if(ret)
-		goto error;
 
 	goto exit;
 
@@ -273,9 +265,17 @@ static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t c
 	if(!count)
 		return 0;
 
+	ret = fingerprint_set_activation_state(dev, true);
+	if(ret)
+		goto exit;
+
+	ret = wait_event_interruptible(dev->bulk_wait, true);
+	if(ret < 0)
+		goto exit;
+
 	ret = mutex_lock_interruptible(&dev->io_mutex);
 	if(ret < 0)
-		return ret;
+		goto exit;
 
 	if(dev->disconnected){
 		ret = -ENODEV;
@@ -287,11 +287,11 @@ retry:
 	if(ongoing_io){
 		if(file->f_flags & O_NONBLOCK){
 			ret = -EAGAIN;
-			goto exit;
+			goto error_unlock_mutex;
 		}
 		ret = wait_event_interruptible(dev->bulk_wait, (!dev->ongoing_read));
 		if(ret < 0)
-			goto exit;
+			goto error_unlock_mutex;
 	}
 
 	if(dev->bulk_filled){
@@ -305,7 +305,7 @@ retry:
 			ret = fingerprint_do_read_usb_request(dev);
 			if(ret < 0)
 				/*error*/
-				goto exit;
+				goto error_unlock_mutex;
 			else
 				/*success*/ 
 				goto retry;
@@ -320,13 +320,24 @@ retry:
 	} else {
 		ret = fingerprint_do_read_usb_request(dev);
 		if(ret < 0)
-			goto exit;
+			goto error_unlock_mutex;
 		else
 			goto retry;
 	}
 
-exit:
 	mutex_unlock(&dev->io_mutex);
+
+	ret = fingerprint_set_activation_state(dev, false);
+	if(ret)
+		goto exit;
+
+	ret = wait_event_interruptible(dev->bulk_wait, true);
+	if(ret < 0)
+		goto exit;
+
+error_unlock_mutex:
+	mutex_unlock(&dev->io_mutex);
+exit:
 	return ret;
 }
 
