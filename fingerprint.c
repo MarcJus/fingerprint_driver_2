@@ -107,6 +107,7 @@ static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool a
 	}
 
 	usb_free_urb(dev->out_urb);
+	dev->out_urb = NULL;
 	mutex_unlock(&dev->io_mutex);
 
 error_unanchor:
@@ -186,7 +187,6 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 	}
 
 	usb_kill_urb(dev->in_urb);
-	usb_free_urb(dev->in_urb);
 
 	/*blocking file*/
 	if(!(file->f_flags & O_NONBLOCK)){
