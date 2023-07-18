@@ -31,6 +31,7 @@ struct fingerprint_skel {
 	struct mutex			io_mutex;
 	wait_queue_head_t		bulk_wait;
 	int 					disconnected:1;
+	bool					reader_activated;
 };
 
 #define to_fingerprint_dev(d) container_of(d, struct fingerprint_skel, refcount)
@@ -65,8 +66,68 @@ static void fingerprint_write_callback(struct urb *urb){
 		__func__, urb->status);
 	}
 
-	mutex_unlock(&dev->io_mutex);
+	dev->reader_activated = !dev->reader_activated;
+	wake_up_interruptible(&dev->bulk_wait);
 	up(&dev->limit_sem);
+}
+
+static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool activated, bool non_blocking){
+	int ret;
+
+	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->out_urb){
+		ret = -ENOMEM;
+		goto error;
+	}
+
+	/*blocking file*/
+	if(!(non_blocking)){
+		if(down_interruptible(&dev->limit_sem)){
+			return -ERESTARTSYS;
+			goto error;
+		}
+	/*non-blocking file*/
+	} else {
+		/**/
+		if(down_trylock(&dev->limit_sem)){
+			return -EAGAIN;
+			goto error;
+		}
+	}
+
+	ret = mutex_lock_interruptible(&dev->io_mutex);
+	if(ret < 0)
+		goto error;
+	if(dev->disconnected){
+		/*device disconnected for unknown reason*/
+		ret = -ENODEV;
+		goto error;
+	}
+
+	dev->last_bulk_out_endpoint = 0x1;
+	dev->bulk_out_buffer[0] = 0x40;
+	dev->bulk_out_buffer[1] = 0xff;
+	dev->bulk_out_buffer[2] = activated ? 0x3 : 0x2;
+
+	usb_fill_bulk_urb(dev->out_urb, dev->udev, usb_sndbulkpipe(dev->udev, dev->last_bulk_out_endpoint),
+		dev->bulk_out_buffer, 3, fingerprint_write_callback, dev);
+	usb_anchor_urb(dev->out_urb, &dev->submitted);
+
+	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
+	mutex_unlock(&dev->io_mutex);
+	if(ret){
+		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
+			__func__, ret);
+		goto error_unanchor;
+	}
+
+	usb_free_urb(dev->out_urb);
+	dev->out_urb = NULL;
+
+error_unanchor:
+	usb_unanchor_urb(dev->out_urb);
+error:
+	return ret;
 }
 
 static int fingerprint_open(struct inode *inode, struct file *file){
@@ -100,64 +161,14 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 
 	file->private_data = dev;
 
-	/*blocking file*/
-	if(!(file->f_flags & O_NONBLOCK)){
-		if(down_interruptible(&dev->limit_sem)){
-			return -ERESTARTSYS;
-			goto exit;
-		}
-	/*non-blocking file*/
-	} else {
-		/**/
-		if(down_trylock(&dev->limit_sem)){
-			return -EAGAIN;
-			goto exit;
-		}
-	}
-
 	dev->in_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if(!dev->in_urb){
 		ret = -ENOMEM;
 		goto error;
 	}
 
-	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->out_urb){
-		ret = -ENOMEM;
-		goto error;
-	}
-
-	mutex_lock(&dev->io_mutex);
-	if(dev->disconnected){
-		/*device disconnected for unknown reason*/
-		mutex_unlock(&dev->io_mutex);
-		ret = -ENODEV;
-		goto error;
-	}
-
-	dev->last_bulk_out_endpoint = 0x1;
-
-	dev->bulk_out_buffer[0] = 0x40;
-	dev->bulk_out_buffer[1] = 0xff;
-	dev->bulk_out_buffer[2] = 0x03;
-
-	usb_fill_bulk_urb(dev->out_urb, dev->udev, usb_sndbulkpipe(dev->udev, dev->last_bulk_out_endpoint),
-		dev->bulk_out_buffer, 3, fingerprint_write_callback, dev);
-	usb_anchor_urb(dev->out_urb, &dev->submitted);
-
-	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
-	if(ret){
-		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
-			__func__, ret);
-		goto error_unanchor;
-	}
-
-	usb_free_urb(dev->out_urb);
-
 	goto exit;
 
-error_unanchor:
-	usb_unanchor_urb(dev->out_urb);
 error:
 	up(&dev->limit_sem);
 exit:
@@ -175,59 +186,9 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 	}
 
 	usb_kill_urb(dev->in_urb);
-	usb_free_urb(dev->in_urb);
-
-	/*blocking file*/
-	if(!(file->f_flags & O_NONBLOCK)){
-		if(down_interruptible(&dev->limit_sem)){
-			return -ERESTARTSYS;
-			goto exit;
-		}
-	/*non-blocking file*/
-	} else {
-		/**/
-		if(down_trylock(&dev->limit_sem)){
-			return -EAGAIN;
-			goto exit;
-		}
-	}
-
-	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->out_urb){
-		ret = -ENOMEM;
-		goto error;
-	}
-
-	mutex_lock(&dev->io_mutex);
-	if(dev->disconnected){
-		/*device disconnected for unknown reason*/
-		mutex_unlock(&dev->io_mutex);
-		ret = -ENODEV;
-		goto error;
-	}
-
-	dev->last_bulk_out_endpoint = 0x1;
-	dev->bulk_out_buffer[0] = 0x40;
-	dev->bulk_out_buffer[1] = 0xff;
-	dev->bulk_out_buffer[2] = 0x02;
-
-	usb_fill_bulk_urb(dev->out_urb, dev->udev, usb_sndbulkpipe(dev->udev, dev->last_bulk_out_endpoint),
-		dev->bulk_out_buffer, 3, fingerprint_write_callback, dev);
-
-	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
-	mutex_unlock(&dev->io_mutex);
-	if(ret){
-		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
-			__func__, ret);
-		goto error_unanchor;
-	}
-
-	usb_free_urb(dev->out_urb);
 
 	goto exit;
 
-error_unanchor:
-	usb_unanchor_urb(dev->out_urb);
 error:
 	up(&dev->limit_sem);
 exit:
@@ -291,9 +252,17 @@ static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t c
 	if(!count)
 		return 0;
 
+	ret = fingerprint_set_activation_state(dev, true, file->f_flags & O_NONBLOCK);
+	if(ret)
+		goto exit;
+
+	ret = wait_event_interruptible(dev->bulk_wait, dev->reader_activated);
+	if(ret < 0)
+		goto exit;
+
 	ret = mutex_lock_interruptible(&dev->io_mutex);
 	if(ret < 0)
-		return ret;
+		goto exit;
 
 	if(dev->disconnected){
 		ret = -ENODEV;
@@ -305,11 +274,11 @@ retry:
 	if(ongoing_io){
 		if(file->f_flags & O_NONBLOCK){
 			ret = -EAGAIN;
-			goto exit;
+			goto error_unlock_mutex;
 		}
 		ret = wait_event_interruptible(dev->bulk_wait, (!dev->ongoing_read));
 		if(ret < 0)
-			goto exit;
+			goto error_unlock_mutex;
 	}
 
 	if(dev->bulk_filled){
@@ -323,7 +292,7 @@ retry:
 			ret = fingerprint_do_read_usb_request(dev);
 			if(ret < 0)
 				/*error*/
-				goto exit;
+				goto error_unlock_mutex;
 			else
 				/*success*/ 
 				goto retry;
@@ -338,13 +307,18 @@ retry:
 	} else {
 		ret = fingerprint_do_read_usb_request(dev);
 		if(ret < 0)
-			goto exit;
+			goto error_unlock_mutex;
 		else
 			goto retry;
 	}
 
-exit:
 	mutex_unlock(&dev->io_mutex);
+
+	fingerprint_set_activation_state(dev, false, file->f_flags & O_NONBLOCK);
+
+error_unlock_mutex:
+	mutex_unlock(&dev->io_mutex);
+exit:
 	return ret;
 }
 
