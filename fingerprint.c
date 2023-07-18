@@ -107,7 +107,7 @@ static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool a
 	mutex_unlock(&dev->io_mutex);
 
 error_unanchor:
-	usb_unanchor_urb(&dev->submitted);
+	usb_unanchor_urb(dev->out_urb);
 error:
 	return ret;
 }
