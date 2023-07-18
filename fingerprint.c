@@ -66,6 +66,7 @@ static void fingerprint_write_callback(struct urb *urb){
 		__func__, urb->status);
 	}
 
+	dev->reader_activated = !dev->reader_activated;
 	wake_up_interruptible(&dev->bulk_wait);
 	up(&dev->limit_sem);
 }
@@ -79,7 +80,9 @@ static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool a
 		goto error;
 	}
 
-	mutex_lock_interruptible(&dev->io_mutex);
+	ret = mutex_lock_interruptible(&dev->io_mutex);
+	if(ret < 0)
+		goto error;
 	if(dev->disconnected){
 		/*device disconnected for unknown reason*/
 		ret = -ENODEV;
@@ -269,7 +272,7 @@ static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t c
 	if(ret)
 		goto exit;
 
-	ret = wait_event_interruptible(dev->bulk_wait, true);
+	ret = wait_event_interruptible(dev->bulk_wait, dev->reader_activated);
 	if(ret < 0)
 		goto exit;
 
@@ -329,10 +332,6 @@ retry:
 
 	ret = fingerprint_set_activation_state(dev, false);
 	if(ret)
-		goto exit;
-
-	ret = wait_event_interruptible(dev->bulk_wait, true);
-	if(ret < 0)
 		goto exit;
 
 error_unlock_mutex:
