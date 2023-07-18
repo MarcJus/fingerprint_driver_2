@@ -71,13 +71,28 @@ static void fingerprint_write_callback(struct urb *urb){
 	up(&dev->limit_sem);
 }
 
-static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool activated){
+static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool activated, bool non_blocking){
 	int ret;
 
 	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if(!dev->out_urb){
 		ret = -ENOMEM;
 		goto error;
+	}
+
+	/*blocking file*/
+	if(!(non_blocking)){
+		if(down_interruptible(&dev->limit_sem)){
+			return -ERESTARTSYS;
+			goto error;
+		}
+	/*non-blocking file*/
+	} else {
+		/**/
+		if(down_trylock(&dev->limit_sem)){
+			return -EAGAIN;
+			goto error;
+		}
 	}
 
 	ret = mutex_lock_interruptible(&dev->io_mutex);
@@ -108,7 +123,6 @@ static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool a
 
 	usb_free_urb(dev->out_urb);
 	dev->out_urb = NULL;
-	mutex_unlock(&dev->io_mutex);
 
 error_unanchor:
 	usb_unanchor_urb(dev->out_urb);
@@ -147,21 +161,6 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 
 	file->private_data = dev;
 
-	/*blocking file*/
-	if(!(file->f_flags & O_NONBLOCK)){
-		if(down_interruptible(&dev->limit_sem)){
-			return -ERESTARTSYS;
-			goto exit;
-		}
-	/*non-blocking file*/
-	} else {
-		/**/
-		if(down_trylock(&dev->limit_sem)){
-			return -EAGAIN;
-			goto exit;
-		}
-	}
-
 	dev->in_urb = usb_alloc_urb(0, GFP_KERNEL);
 	if(!dev->in_urb){
 		ret = -ENOMEM;
@@ -187,21 +186,6 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 	}
 
 	usb_kill_urb(dev->in_urb);
-
-	/*blocking file*/
-	if(!(file->f_flags & O_NONBLOCK)){
-		if(down_interruptible(&dev->limit_sem)){
-			return -ERESTARTSYS;
-			goto exit;
-		}
-	/*non-blocking file*/
-	} else {
-		/**/
-		if(down_trylock(&dev->limit_sem)){
-			return -EAGAIN;
-			goto exit;
-		}
-	}
 
 	goto exit;
 
@@ -268,7 +252,7 @@ static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t c
 	if(!count)
 		return 0;
 
-	ret = fingerprint_set_activation_state(dev, true);
+	ret = fingerprint_set_activation_state(dev, true, file->f_flags & O_NONBLOCK);
 	if(ret)
 		goto exit;
 
@@ -330,7 +314,7 @@ retry:
 
 	mutex_unlock(&dev->io_mutex);
 
-	ret = fingerprint_set_activation_state(dev, false);
+	ret = fingerprint_set_activation_state(dev, false, file->f_flags & O_NONBLOCK);
 	if(ret)
 		goto exit;
 
