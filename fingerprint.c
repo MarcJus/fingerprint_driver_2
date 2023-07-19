@@ -161,12 +161,6 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 
 	file->private_data = dev;
 
-	dev->in_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->in_urb){
-		ret = -ENOMEM;
-		goto error;
-	}
-
 	goto exit;
 
 error:
@@ -363,6 +357,12 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 	dev->udev = usb_get_dev(interface_to_usbdev(interface));
 	dev->interface = usb_get_intf(interface);
 
+	dev->in_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->in_urb){
+		ret = -ENOMEM;
+		goto error;
+	}
+
 	/*64 = length of fingerprint*/
 	dev->bulk_size = 64;
 	dev->bulk_in_buffer = kmalloc(dev->bulk_size, GFP_KERNEL);
@@ -392,7 +392,10 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 	dev->disconnected = 0;
 	mutex_unlock(&dev->io_mutex);
 
+	return 0;
+
 error:
+	kref_put(&dev->refcount, fingerprint_delete);
 	return ret;
 }
 
