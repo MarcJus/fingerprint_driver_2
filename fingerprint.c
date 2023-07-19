@@ -438,8 +438,6 @@ static void __exit module_fingerprint_exit(void){
 module_init(module_fingerprint_init);
 module_exit(module_fingerprint_exit);
 
-// module_usb_driver(fingerprint_usb_driver);
-
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("MarcJus");
 MODULE_DESCRIPTION("Driver for Elan fingerprint product 0c00");
