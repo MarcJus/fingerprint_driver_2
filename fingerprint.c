@@ -234,7 +234,7 @@ static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
 		dev_err(&dev->interface->dev, 
 			"%s - failed submitting read urb, error %d\n",
 			__func__, ret);
-		// ret = (ret == -ENOMEM) ? ret : -EIO;
+		ret = (ret == -ENOMEM) ? ret : -EIO;
 		dev->ongoing_read = 0;
 	}
 
