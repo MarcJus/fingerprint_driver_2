@@ -163,8 +163,6 @@ static int fingerprint_open(struct inode *inode, struct file *file){
 
 	goto exit;
 
-error:
-	up(&dev->limit_sem);
 exit:
 	return ret;
 }
@@ -182,9 +180,6 @@ static int fingerprint_release(struct inode *inode, struct file *file){
 	if(dev->reader_activated)
 		ret = fingerprint_set_activation_state(dev, false, true);
 
-error:
-	up(&dev->limit_sem);
-exit:
 	usb_kill_urb(dev->in_urb);
 	kref_put(&dev->refcount, fingerprint_delete);
 	return ret;
