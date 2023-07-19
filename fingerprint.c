@@ -254,11 +254,11 @@ static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t c
 
 	ret = fingerprint_set_activation_state(dev, true, file->f_flags & O_NONBLOCK);
 	if(ret)
-		goto exit;
+		return ret;
 
 	ret = wait_event_interruptible(dev->bulk_wait, dev->reader_activated);
 	if(ret < 0)
-		goto exit;
+		return ret;
 
 	ret = mutex_lock_interruptible(&dev->io_mutex);
 	if(ret < 0)
@@ -274,11 +274,11 @@ retry:
 	if(ongoing_io){
 		if(file->f_flags & O_NONBLOCK){
 			ret = -EAGAIN;
-			goto error_unlock_mutex;
+			goto exit;
 		}
 		ret = wait_event_interruptible(dev->bulk_wait, (!dev->ongoing_read));
 		if(ret < 0)
-			goto error_unlock_mutex;
+			goto exit;
 	}
 
 	if(dev->bulk_filled){
@@ -292,7 +292,7 @@ retry:
 			ret = fingerprint_do_read_usb_request(dev);
 			if(ret < 0)
 				/*error*/
-				goto error_unlock_mutex;
+				goto exit;
 			else
 				/*success*/ 
 				goto retry;
@@ -307,7 +307,7 @@ retry:
 	} else {
 		ret = fingerprint_do_read_usb_request(dev);
 		if(ret < 0)
-			goto error_unlock_mutex;
+			goto exit;
 		else
 			goto retry;
 	}
@@ -316,11 +316,10 @@ retry:
 
 	ret = fingerprint_set_activation_state(dev, false, file->f_flags & O_NONBLOCK);
 	if(ret)
-		goto exit;
+		return ret;
 
-error_unlock_mutex:
-	mutex_unlock(&dev->io_mutex);
 exit:
+	mutex_unlock(&dev->io_mutex);
 	return ret;
 }
 
