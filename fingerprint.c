@@ -74,25 +74,28 @@ static void fingerprint_write_callback(struct urb *urb){
 static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool activated, bool non_blocking){
 	int ret;
 
-	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->out_urb){
-		ret = -ENOMEM;
-		goto error;
+	if(dev->reader_activated == activated){
+		return 0;
 	}
 
 	/*blocking file*/
 	if(!(non_blocking)){
 		if(down_interruptible(&dev->limit_sem)){
-			return -ERESTARTSYS;
-			goto error;
+			ret = -ERESTARTSYS;
+			goto exit;
 		}
 	/*non-blocking file*/
 	} else {
-		/**/
 		if(down_trylock(&dev->limit_sem)){
-			return -EAGAIN;
-			goto error;
+			ret = -EAGAIN;
+			goto exit;
 		}
+	}
+
+	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->out_urb){
+		ret = -ENOMEM;
+		goto error;
 	}
 
 	ret = mutex_lock_interruptible(&dev->io_mutex);
@@ -114,7 +117,6 @@ static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool a
 	usb_anchor_urb(dev->out_urb, &dev->submitted);
 
 	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
-	mutex_unlock(&dev->io_mutex);
 	if(ret){
 		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
 			__func__, ret);
@@ -123,10 +125,19 @@ static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool a
 
 	usb_free_urb(dev->out_urb);
 	dev->out_urb = NULL;
+	mutex_unlock(&dev->io_mutex);
+
+	return ret;
 
 error_unanchor:
 	usb_unanchor_urb(dev->out_urb);
+
 error:
+	if(dev->out_urb){
+		usb_free_urb(dev->out_urb);
+	}
+	up(&dev->limit_sem);
+exit:
 	return ret;
 }
 
