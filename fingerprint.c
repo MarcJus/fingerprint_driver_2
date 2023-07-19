@@ -314,7 +314,9 @@ retry:
 
 	mutex_unlock(&dev->io_mutex);
 
-	fingerprint_set_activation_state(dev, false, file->f_flags & O_NONBLOCK);
+	ret = fingerprint_set_activation_state(dev, false, file->f_flags & O_NONBLOCK);
+	if(ret)
+		goto exit;
 
 error_unlock_mutex:
 	mutex_unlock(&dev->io_mutex);
