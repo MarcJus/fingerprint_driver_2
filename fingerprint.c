@@ -28,7 +28,8 @@ struct fingerprint_skel {
 	size_t					bulk_copied;
 	bool					ongoing_read;
 	bool					open;
-	struct mutex			io_mutex;
+	struct mutex			io_mutex; /*for fork reading*/
+	struct mutex			read_mutex;
 	wait_queue_head_t		bulk_wait;
 	int 					disconnected:1;
 	bool					reader_activated;
@@ -74,25 +75,28 @@ static void fingerprint_write_callback(struct urb *urb){
 static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool activated, bool non_blocking){
 	int ret;
 
-	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
-	if(!dev->out_urb){
-		ret = -ENOMEM;
-		goto error;
+	if(dev->reader_activated == activated){
+		return 0;
 	}
 
 	/*blocking file*/
 	if(!(non_blocking)){
 		if(down_interruptible(&dev->limit_sem)){
-			return -ERESTARTSYS;
-			goto error;
+			ret = -ERESTARTSYS;
+			goto exit;
 		}
 	/*non-blocking file*/
 	} else {
-		/**/
 		if(down_trylock(&dev->limit_sem)){
-			return -EAGAIN;
-			goto error;
+			ret = -EAGAIN;
+			goto exit;
 		}
+	}
+
+	dev->out_urb = usb_alloc_urb(0, GFP_KERNEL);
+	if(!dev->out_urb){
+		ret = -ENOMEM;
+		goto error;
 	}
 
 	ret = mutex_lock_interruptible(&dev->io_mutex);
@@ -114,7 +118,6 @@ static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool a
 	usb_anchor_urb(dev->out_urb, &dev->submitted);
 
 	ret = usb_submit_urb(dev->out_urb, GFP_KERNEL);
-	mutex_unlock(&dev->io_mutex);
 	if(ret){
 		dev_err(&dev->interface->dev, "%s - failed submitting urb, error %d\n",
 			__func__, ret);
@@ -123,10 +126,19 @@ static int fingerprint_set_activation_state(struct fingerprint_skel *dev, bool a
 
 	usb_free_urb(dev->out_urb);
 	dev->out_urb = NULL;
+	mutex_unlock(&dev->io_mutex);
+
+	return ret;
 
 error_unanchor:
 	usb_unanchor_urb(dev->out_urb);
+
 error:
+	if(dev->out_urb){
+		usb_free_urb(dev->out_urb);
+	}
+	up(&dev->limit_sem);
+exit:
 	return ret;
 }
 
@@ -241,17 +253,27 @@ static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t c
 	if(!count)
 		return 0;
 
+	ret = mutex_lock_interruptible(&dev->read_mutex);
+	if(ret < 0)
+		return ret;
+
 	ret = fingerprint_set_activation_state(dev, true, file->f_flags & O_NONBLOCK);
-	if(ret)
-		goto exit;
+	if(ret){
+		mutex_unlock(&dev->read_mutex);
+		return ret;
+	}
 
 	ret = wait_event_interruptible(dev->bulk_wait, dev->reader_activated);
-	if(ret < 0)
-		goto exit;
+	if(ret < 0){
+		mutex_unlock(&dev->read_mutex);
+		return ret;
+	}
 
 	ret = mutex_lock_interruptible(&dev->io_mutex);
-	if(ret < 0)
-		goto exit;
+	if(ret < 0){
+		mutex_unlock(&dev->read_mutex);
+		return ret;
+	}
 
 	if(dev->disconnected){
 		ret = -ENODEV;
@@ -263,11 +285,11 @@ retry:
 	if(ongoing_io){
 		if(file->f_flags & O_NONBLOCK){
 			ret = -EAGAIN;
-			goto error_unlock_mutex;
+			goto exit;
 		}
 		ret = wait_event_interruptible(dev->bulk_wait, (!dev->ongoing_read));
 		if(ret < 0)
-			goto error_unlock_mutex;
+			goto exit;
 	}
 
 	if(dev->bulk_filled){
@@ -281,7 +303,7 @@ retry:
 			ret = fingerprint_do_read_usb_request(dev);
 			if(ret < 0)
 				/*error*/
-				goto error_unlock_mutex;
+				goto exit;
 			else
 				/*success*/ 
 				goto retry;
@@ -296,18 +318,22 @@ retry:
 	} else {
 		ret = fingerprint_do_read_usb_request(dev);
 		if(ret < 0)
-			goto error_unlock_mutex;
+			goto exit;
 		else
 			goto retry;
 	}
 
 	mutex_unlock(&dev->io_mutex);
 
-	fingerprint_set_activation_state(dev, false, file->f_flags & O_NONBLOCK);
+	ret = fingerprint_set_activation_state(dev, false, file->f_flags & O_NONBLOCK);
+	if(ret)
+		return ret;
 
-error_unlock_mutex:
-	mutex_unlock(&dev->io_mutex);
+	wait_event_interruptible(dev->bulk_wait, !(dev->reader_activated));
+
 exit:
+	mutex_unlock(&dev->io_mutex);
+	mutex_unlock(&dev->read_mutex);
 	return ret;
 }
 
@@ -344,6 +370,7 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 		return -ENOMEM;
 
 	mutex_init(&dev->io_mutex);
+	mutex_init(&dev->read_mutex);
 	init_waitqueue_head(&dev->bulk_wait);
 	sema_init(&dev->limit_sem, 1);
 	init_usb_anchor(&dev->submitted);
