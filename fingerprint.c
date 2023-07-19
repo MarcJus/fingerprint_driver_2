@@ -392,6 +392,8 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 	dev->disconnected = 0;
 	mutex_unlock(&dev->io_mutex);
 
+	return 0;
+
 error:
 	kref_put(&dev->refcount, fingerprint_delete);
 	return ret;
