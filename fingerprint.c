@@ -253,17 +253,27 @@ static ssize_t fingerprint_read(struct file *file, char __user *buffer, size_t c
 	if(!count)
 		return 0;
 
-	ret = fingerprint_set_activation_state(dev, true, file->f_flags & O_NONBLOCK);
-	if(ret)
+	ret = mutex_lock_interruptible(&dev->read_mutex);
+	if(ret < 0)
 		return ret;
+
+	ret = fingerprint_set_activation_state(dev, true, file->f_flags & O_NONBLOCK);
+	if(ret){
+		mutex_unlock(&dev->read_mutex);
+		return ret;
+	}
 
 	ret = wait_event_interruptible(dev->bulk_wait, dev->reader_activated);
-	if(ret < 0)
+	if(ret < 0){
+		mutex_unlock(&dev->read_mutex);
 		return ret;
+	}
 
 	ret = mutex_lock_interruptible(&dev->io_mutex);
-	if(ret < 0)
-		goto exit;
+	if(ret < 0){
+		mutex_unlock(&dev->read_mutex);
+		return ret;
+	}
 
 	if(dev->disconnected){
 		ret = -ENODEV;
@@ -319,8 +329,11 @@ retry:
 	if(ret)
 		return ret;
 
+	wait_event_interruptible(dev->bulk_wait, !(dev->reader_activated));
+
 exit:
 	mutex_unlock(&dev->io_mutex);
+	mutex_unlock(&dev->read_mutex);
 	return ret;
 }
 
