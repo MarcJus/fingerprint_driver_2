@@ -325,9 +325,8 @@ retry:
 
 	mutex_unlock(&dev->io_mutex);
 
-	ret = fingerprint_set_activation_state(dev, false, file->f_flags & O_NONBLOCK);
-	if(ret)
-		return ret;
+	if(fingerprint_set_activation_state(dev, false, file->f_flags & O_NONBLOCK))
+		return -EIO;
 
 	wait_event_interruptible(dev->bulk_wait, !(dev->reader_activated));
 
