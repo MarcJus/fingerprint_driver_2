@@ -10,6 +10,9 @@ modules:
 clean:
 	sudo make -C $(KDIR) M=$(PWD) clean
 
+install:
+	sudo make -C $(KDIR) M=$(PWD) modules_install 
+
 remove:
 	sudo rmmod fingerprint.ko
 
