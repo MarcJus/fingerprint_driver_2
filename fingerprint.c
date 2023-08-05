@@ -346,6 +346,10 @@ char *fingerprint_devnode(struct device *dev, umode_t *mode){
 	return NULL;
 }
 
+__poll_t fingerprint_poll(struct file *file, struct poll_table_struct *poll_table){
+
+}
+
 struct file_operations fops = {
 	.owner = THIS_MODULE,
 	.open = fingerprint_open,
