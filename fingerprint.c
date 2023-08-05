@@ -348,7 +348,12 @@ char *fingerprint_devnode(struct device *dev, umode_t *mode){
 }
 
 __poll_t fingerprint_poll(struct file *file, struct poll_table_struct *poll_table){
+	__poll_t mask;
+	struct fingerprint_skel *dev;
 
+	dev = file->private_data;
+
+	return mask;
 }
 
 struct file_operations fops = {
