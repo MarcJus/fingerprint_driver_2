@@ -5,6 +5,7 @@
 #include <linux/fd.h>
 #include <linux/wait.h>
 #include <linux/mutex.h>
+#include <linux/poll.h>
 
 #define MODULE_NAME KBUILD_MODNAME
 
@@ -213,6 +214,7 @@ static void fingerprint_read_callback(struct urb *urb){
 	dev->ongoing_read = 0;
 
 	wake_up_interruptible(&dev->bulk_wait);
+	wake_up_interruptible(&dev->poll_wait);
 }
 
 static int fingerprint_do_read_usb_request(struct fingerprint_skel *dev){
@@ -352,6 +354,9 @@ __poll_t fingerprint_poll(struct file *file, struct poll_table_struct *poll_tabl
 	struct fingerprint_skel *dev;
 
 	dev = file->private_data;
+	poll_wait(file, &dev->poll_wait, poll_table);
+	printk("poll function\n");
+
 
 	return mask;
 }
