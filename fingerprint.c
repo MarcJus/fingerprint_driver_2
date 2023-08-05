@@ -31,6 +31,7 @@ struct fingerprint_skel {
 	struct mutex			io_mutex; /*for fork reading*/
 	struct mutex			read_mutex;
 	wait_queue_head_t		bulk_wait;
+	wait_queue_head_t		poll_wait;
 	int 					disconnected:1;
 	bool					reader_activated;
 };
@@ -375,6 +376,7 @@ static int fingerprint_usb_probe(struct usb_interface *interface, const struct u
 	mutex_init(&dev->io_mutex);
 	mutex_init(&dev->read_mutex);
 	init_waitqueue_head(&dev->bulk_wait);
+	init_waitqueue_head(&dev->poll_wait);
 	sema_init(&dev->limit_sem, 1);
 	init_usb_anchor(&dev->submitted);
 	kref_init(&dev->refcount);
