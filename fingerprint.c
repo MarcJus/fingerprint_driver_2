@@ -352,12 +352,35 @@ char *fingerprint_devnode(struct device *dev, umode_t *mode){
 __poll_t fingerprint_poll(struct file *file, struct poll_table_struct *poll_table){
 	__poll_t mask;
 	struct fingerprint_skel *dev;
+	int ret;
 
 	dev = file->private_data;
+
+	if(dev->bulk_filled){
+		/*data left to copy*/
+		size_t available = dev->bulk_filled - dev->bulk_copied;
+
+		/*no data left to copy*/
+		if(!available){
+			ret = fingerprint_do_read_usb_request(dev);
+			if(ret < 0){
+				mask = POLLERR;
+				goto exit;
+			}
+		}
+
+	} else {
+		ret = fingerprint_do_read_usb_request(dev);
+		if(ret < 0){
+			mask = POLLERR;
+			goto exit;
+		}
+	}
+
 	poll_wait(file, &dev->poll_wait, poll_table);
 	printk("poll function\n");
 
-
+exit:
 	return mask;
 }
 
