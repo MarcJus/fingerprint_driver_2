@@ -340,7 +340,7 @@ static int fingerprint_flush(struct file *file, fl_owner_t id){
 	return 0;
 }
 
-char *fingerprint_devnode(struct device *dev, umode_t *mode){
+char *fingerprint_devnode(const struct device *dev, umode_t *mode){
 	if(mode)
 		*mode = 0644;
 	return NULL;
